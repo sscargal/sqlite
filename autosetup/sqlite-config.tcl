@@ -212,6 +212,7 @@ proc sqlite-configure {buildMode configScript} {
         geopoly              => {Enable the GEOPOLY extension}
         rtree                => {Enable the RTREE extension}
         session              => {Enable the SESSION extension}
+        pmem=1               => {Disable PMEM functions}
         all=$::sqliteConfig(all-flag-default) => {$allFlagHelp}
         largefile=1
           => {This legacy flag has no effect on the library but may influence
@@ -776,7 +777,12 @@ proc sqlite-handle-common-feature-flags {} {
     }
     scanstatus      -DSQLITE_ENABLE_STMT_SCANSTATUS {}
     column-metadata -DSQLITE_ENABLE_COLUMN_METADATA {}
+    pmem            -DSQLITE_HAVE_LIBPMEM2 {}
   }] {
+    # Add linker flag for pmem if enabled
+    if {$boolFlag eq "pmem" && [proj-opt-truthy pmem]} {
+      define-append OPT_SHELL -lpmem2
+    }
     if {$boolFlag ni $::autosetup(options)} {
       # Skip flags which are in the canonical build but not
       # the autoconf bundle.

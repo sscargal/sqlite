@@ -40,7 +40,7 @@ all:
 # The top-most directory of the source tree.  This is the directory
 # that contains this "Makefile.in" and the "configure" script.
 #
-TOP = @abs_top_srcdir@
+TOP = /home/amd/sqlite
 
 #
 # Autotools-conventional vars which are used by package installation
@@ -69,19 +69,19 @@ TOP = @abs_top_srcdir@
 # infodir        = $(datadir)/info
 # libexecdir     = $(exec_prefix)/libexec
 #
-prefix      = @prefix@
-datadir     = @datadir@
-mandir      = @mandir@
-includedir  = @includedir@
-exec_prefix = @exec_prefix@
-bindir      = @bindir@
-libdir      = @libdir@
+prefix      = /usr/local
+datadir     = ${prefix}/share
+mandir      = ${datadir}/man
+includedir  = ${prefix}/include
+exec_prefix = ${prefix}
+bindir      = ${exec_prefix}/bin
+libdir      = ${exec_prefix}/lib
 
-INSTALL = @BIN_INSTALL@
-AR = @AR@
+INSTALL = /usr/bin/install
+AR = ar
 AR.flags = cr
-CC = @CC@
-B.cc = @CC_FOR_BUILD@ @BUILD_CFLAGS@
+CC = cc
+B.cc = cc -g
 T.cc = $(CC)
 #
 # Add PMEM support if enabled
@@ -91,66 +91,66 @@ ifeq ($(PMEM_ENABLED),1)
   CFLAGS += -DSQLITE_HAVE_LIBPMEM2
   LDFLAGS.pmem += -lpmem2
 endif
-CFLAGS = @CFLAGS@ @CPPFLAGS@
+CFLAGS = -O2 -g 
 #
 # $(LDFLAGS.configure) represents any LDFLAGS=... the client passes to
 # configure. See main.mk.
 #
-LDFLAGS.configure = @LDFLAGS@
+LDFLAGS.configure = 
 
 #
 # CFLAGS.core is documented in main.mk.
 #
-CFLAGS.core = @SH_CFLAGS@
-LDFLAGS.shlib = @SH_LDFLAGS@
-LDFLAGS.zlib = @LDFLAGS_ZLIB@
-LDFLAGS.math = @LDFLAGS_MATH@
-LDFLAGS.rpath = @LDFLAGS_RPATH@
-LDFLAGS.pthread = @LDFLAGS_PTHREAD@
-LDFLAGS.dlopen = @LDFLAGS_DLOPEN@
-LDFLAGS.readline = @LDFLAGS_READLINE@
-CFLAGS.readline = @CFLAGS_READLINE@
-LDFLAGS.icu = @LDFLAGS_ICU@
-LDFLAGS.rt = @LDFLAGS_RT@
-CFLAGS.icu = @CFLAGS_ICU@
-LDFLAGS.libsqlite3.soname = @LDFLAGS_LIBSQLITE3_SONAME@
+CFLAGS.core = -fPIC
+LDFLAGS.shlib = -shared
+LDFLAGS.zlib = -lz
+LDFLAGS.math = -lm
+LDFLAGS.rpath = -Wl,-rpath,/usr/local/lib
+LDFLAGS.pthread = 
+LDFLAGS.dlopen = 
+LDFLAGS.readline = 
+CFLAGS.readline = 
+LDFLAGS.icu = 
+LDFLAGS.rt = 
+CFLAGS.icu = 
+LDFLAGS.libsqlite3.soname = 
 # soname: see https://sqlite.org/src/forumpost/5a3b44f510df8ded
 LDFLAGS.libsqlite3.os-specific = \
-  @LDFLAGS_MAC_CVERSION@ @LDFLAGS_MAC_INSTALL_NAME@ @LDFLAGS_OUT_IMPLIB@
+	
 # os-specific: see
 # - https://sqlite.org/forum/forumpost/9dfd5b8fd525a5d7
 # - https://sqlite.org/forum/forumpost/0c7fc097b2
 # - https://sqlite.org/forum/forumpost/5651662b8875ec0a
 
-libsqlite3.DLL.basename = @SQLITE_DLL_BASENAME@
+libsqlite3.DLL.basename = libsqlite3
 # DLL.basename: see https://sqlite.org/forum/forumpost/828fdfe904
-libsqlite3.out.implib = @SQLITE_OUT_IMPLIB@
+libsqlite3.out.implib = 
 # libsqlite3.out.implib => the output filename part of LDFLAGS_OUT_IMPLIB.
-ENABLE_LIB_SHARED = @ENABLE_LIB_SHARED@
-ENABLE_LIB_STATIC = @ENABLE_LIB_STATIC@
-HAVE_WASI_SDK = @HAVE_WASI_SDK@
-libsqlite3.DLL.install-rules = @SQLITE_DLL_INSTALL_RULES@
+ENABLE_LIB_SHARED = 1
+ENABLE_LIB_STATIC = 1
+HAVE_WASI_SDK = 0
+libsqlite3.DLL.install-rules = unix-generic
 
 # -fsanitize flags for the fuzzcheck-asap app
-CFLAGS.fuzzcheck-asan.fsanitize = @CFLAGS_ASAN_FSANITIZE@
+CFLAGS.fuzzcheck-asan.fsanitize = -fsanitize=address,bounds-strict
 
 #
 # Intended to either be empty or be set to -g -DSQLITE_DEBUG=1.
 #
-T.cc.TARGET_DEBUG = @TARGET_DEBUG@
+T.cc.TARGET_DEBUG = -DNDEBUG
 
 #
 # $(JIMSH) and $(CFLAGS.jimsh) are documented in main.mk.  $(JIMSH)
 # must start with a path component so that it can be invoked as a
 # shell command.
 #
-CFLAGS.jimsh = @CFLAGS_JIMSH@
+CFLAGS.jimsh = -O1 -DHAVE_REALPATH
 JIMSH = ./jimsh$(T.exe)
 
 #
 # $(B.tclsh) is documented in main.mk.
 #
-B.tclsh = @BTCLSH@
+B.tclsh = $(JIMSH)
 $(B.tclsh):
 
 #
@@ -160,22 +160,22 @@ $(B.tclsh):
 # and somewhat confusing because there's another var, $(OPTS), which
 # has a similar (but not identical) role.
 #
-OPT_FEATURE_FLAGS = @OPT_FEATURE_FLAGS@ $(OPTIONS)
+OPT_FEATURE_FLAGS = -DSQLITE_ENABLE_MATH_FUNCTIONS -DSQLITE_HAVE_LIBPMEM2 -DSQLITE_THREADSAFE=1 $(OPTIONS)
 
 #
 # Version (X.Y.Z) number for the SQLite being compiled.
 #
-PACKAGE_VERSION = @PACKAGE_VERSION@
+PACKAGE_VERSION = 3.51.0
 
 #
 # Filename extensions for binaries and libraries
 #
-B.exe = @BUILD_EXEEXT@
-T.exe = @TARGET_EXEEXT@
-B.dll = @BUILD_DLLEXT@
-T.dll = @TARGET_DLLEXT@
-B.lib = @BUILD_LIBEXT@
-T.lib = @TARGET_LIBEXT@
+B.exe = 
+T.exe = 
+B.dll = .so
+T.dll = .so
+B.lib = .a
+T.lib = .a
 
 #
 # $(HAVE_TCL) is 1 if the configure script was able to locate the
@@ -183,15 +183,15 @@ T.lib = @TARGET_LIBEXT@
 # extension library (libtclsqlite3.so) and related testing apps are
 # built.
 #
-HAVE_TCL = @HAVE_TCL@
+HAVE_TCL = 1
 
 #
 # $(TCLSH_CMD) is the command to use for tclsh - normally just
 # "tclsh", but we may know the specific version we want to use. This
 # must point to a canonical TCL interpreter, not JimTCL.
 #
-TCLSH_CMD = @TCLSH_CMD@
-TCL_CONFIG_SH = @TCL_CONFIG_SH@
+TCLSH_CMD = /usr/bin/tclsh8.6
+TCL_CONFIG_SH = /usr/lib/x86_64-linux-gnu/tclConfig.sh
 
 #
 # TCL config info from tclConfig.sh
@@ -201,15 +201,15 @@ TCL_CONFIG_SH = @TCL_CONFIG_SH@
 # block is retained in case we decide that we do indeed need to export
 # it at configure-time instead of calculate it at make-time.
 #
-#TCL_INCLUDE_SPEC = @TCL_INCLUDE_SPEC@
-#TCL_LIB_SPEC = @TCL_LIB_SPEC@
-#TCL_STUB_LIB_SPEC = @TCL_STUB_LIB_SPEC@
-#TCL_EXEC_PREFIX = @TCL_EXEC_PREFIX@
-#TCL_VERSION = @TCL_VERSION@
-TCL_MAJOR_VERSION = @TCL_MAJOR_VERSION@
+#TCL_INCLUDE_SPEC = -I/usr/include/tcl8.6
+#TCL_LIB_SPEC = -L/usr/lib/x86_64-linux-gnu -ltcl8.6
+#TCL_STUB_LIB_SPEC = -L/usr/lib/x86_64-linux-gnu -ltclstub8.6
+#TCL_EXEC_PREFIX = /usr
+#TCL_VERSION = 8.6
+TCL_MAJOR_VERSION = 8
 # ^^^ main.mk optionally uses this for determining the Tcl extension's
 # DLL name.
-TCL_EXT_DLL_BASENAME = @TCL_EXT_DLL_BASENAME@
+TCL_EXT_DLL_BASENAME = libsqlite
 # ^^^ base name of the Tcl extension DLL. It varies by platform and
 # Tcl version.
 
@@ -220,13 +220,13 @@ TCL_EXT_DLL_BASENAME = @TCL_EXT_DLL_BASENAME@
 # clients are not required to pass it at make-time, or may set it in
 # their environment to override it.
 #
-TCLLIBDIR = @TCLLIBDIR@
+TCLLIBDIR = /usr/share/tcltk/tcl8.6/sqlite3.51.0
 
 #
 # Additional options when running tests using testrunner.tcl
 # This is usually either blank or --status.
 #
-TSTRNNR_OPTS = @TSTRNNR_OPTS@
+TSTRNNR_OPTS = 
 
 #
 # If gcov support was enabled by the configure script, add the appropriate
@@ -242,7 +242,7 @@ TSTRNNR_OPTS = @TSTRNNR_OPTS@
 #
 CFLAGS.gcov1 = -DSQLITE_COVERAGE_TEST=1 -fprofile-arcs -ftest-coverage
 LDFLAGS.gcov1 = -lgcov
-USE_GCOV = @USE_GCOV@
+USE_GCOV = 0
 T.compile.gcov = $(CFLAGS.gcov$(USE_GCOV))
 T.link.gcov = $(LDFLAGS.gcov$(USE_GCOV))
 
@@ -256,21 +256,21 @@ AS_AUTO_DEF = $(TOP)/auto.def
 # Shell commands to re-run $(TOP)/configure with the same args it was
 # invoked with to produce this makefile.
 #
-AS_AUTORECONFIG = @SQLITE_AUTORECONFIG@
+AS_AUTORECONFIG = cd "/home/amd/sqlite" && /home/amd/sqlite/autosetup/autosetup
 .PHONY: reconfigure
 reconfigure:
 	$(AS_AUTORECONFIG)
-USE_AMALGAMATION ?= @USE_AMALGAMATION@
-LINK_TOOLS_DYNAMICALLY ?= @LINK_TOOLS_DYNAMICALLY@
-AMALGAMATION_GEN_FLAGS ?= --linemacros=@AMALGAMATION_LINE_MACROS@
-EXTRA_SRC ?= @AMALGAMATION_EXTRA_SRC@
-STATIC_TCLSQLITE3 = @STATIC_TCLSQLITE3@
-STATIC_CLI_SHELL = @STATIC_CLI_SHELL@
+USE_AMALGAMATION ?= 1
+LINK_TOOLS_DYNAMICALLY ?= 0
+AMALGAMATION_GEN_FLAGS ?= --linemacros=0
+EXTRA_SRC ?= 
+STATIC_TCLSQLITE3 = 0
+STATIC_CLI_SHELL = 0
 
 #
 # CFLAGS for sqlite3$(T.exe)
 #
-SHELL_OPT ?= @OPT_SHELL@
+SHELL_OPT ?= -DSQLITE_HAVE_ZLIB=1 -lpmem2
 
 Makefile: $(TOP)/Makefile.in $(AS_AUTO_DEF)
 	$(AS_AUTORECONFIG)
@@ -295,7 +295,7 @@ sqlite_cfg.h: $(AS_AUTO_DEF)
 # Achtung: though _this_ makefile is POSIX-make compatible, the fiddle
 # build requires GNU make.
 #
-EMCC_WRAPPER = @EMCC_WRAPPER@
+EMCC_WRAPPER = 
 fiddle: sqlite3.c shell.c
 	@if [ x = "x$(EMCC_WRAPPER)" ]; then \
 		echo "Emscripten SDK not found by configure. Cannot build fiddle." 1&>2; \

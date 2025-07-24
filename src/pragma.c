@@ -1,3 +1,4 @@
+
 /*
 ** 2003 April 6
 **
@@ -516,6 +517,27 @@ void sqlite3Pragma(
 
   /* Jump to the appropriate pragma handler */
   switch( pPragma->ePragTyp ){
+  /*
+  ** PRAGMA [schema.]pmem_status
+  **
+  ** Return 1 if the main database file is on persistent memory, 0 otherwise.
+  ** If compiled without persistent memory support, always returns 0.
+  */
+  case PragTyp_PMEM_STATUS: {
+#ifdef SQLITE_HAVE_LIBPMEM2
+    int pmem = 0;
+    rc = sqlite3_file_control(db, zDb, 0xAFA0 /*SQLITE_FCNTL_PMEM_STATUS*/, &pmem);
+    if( rc==SQLITE_OK ){
+      returnSingleInt(v, pmem);
+    }else if( rc!=SQLITE_NOTFOUND ){
+      pParse->nErr++;
+      pParse->rc = rc;
+    }
+#else
+    returnSingleInt(v, 0);
+#endif
+    break;
+  }
  
 #if !defined(SQLITE_OMIT_PAGER_PRAGMAS) && !defined(SQLITE_OMIT_DEPRECATED)
   /*

@@ -46,6 +46,10 @@
 #include "sqliteInt.h"
 #if SQLITE_OS_UNIX              /* This file is used on unix only */
 
+#ifdef SQLITE_HAVE_LIBPMEM2
+#include <libpmem2.h>
+#endif
+
 /*
 ** There are various methods for file locking used for concurrency
 ** control:
@@ -274,6 +278,11 @@ struct unixFile {
   sqlite3_int64 mmapSizeMax;          /* Configured FCNTL_MMAP_SIZE value */
   void *pMapRegion;                   /* Memory mapped region */
 #endif
+  /* PMEM2 support */
+#ifdef SQLITE_HAVE_LIBPMEM2
+  int isPmem;                         /* 1 if file is on pmem, 0 otherwise */
+  struct pmem2_map *pmem_map;         /* pmem2 mapping handle */
+#endif
   int sectorSize;                     /* Device sector size */
   int deviceCharacteristics;          /* Precomputed device characteristics */
 #if SQLITE_ENABLE_LOCKING_STYLE
@@ -413,6 +422,16 @@ static int posixOpen(const char *zFile, int flags, int mode){
 /* Forward reference */
 static int openDirectory(const char*, int*);
 static int unixGetpagesize(void);
+
+#ifdef SQLITE_HAVE_LIBPMEM2
+/* Helper: Log pmem2 errors */
+static void logPmem2Error(const char *zFunc, int rc, const char *zPath) {
+  char errbuf[128];
+  const char *msg = pmem2_errormsg();
+  snprintf(errbuf, sizeof(errbuf), "pmem2 error %d: %s", rc, msg ? msg : "unknown");
+  sqlite3_log(SQLITE_IOERR, "%s(%s) - %s", zFunc, zPath ? zPath : "", errbuf);
+}
+#endif
 
 /*
 ** Many system calls are accessed through pointer-to-functions so that
@@ -2151,6 +2170,14 @@ static int closeUnixFile(sqlite3_file *id){
 #if SQLITE_MAX_MMAP_SIZE>0
   unixUnmapfile(pFile);
 #endif
+#ifdef SQLITE_HAVE_LIBPMEM2
+  if (pFile->isPmem && pFile->pmem_map) {
+    pmem2_map_delete(&pFile->pmem_map);
+    sqlite3_log(SQLITE_OK, "PMEM2: unmapped persistent memory for %s", pFile->zPath);
+    pFile->pmem_map = NULL;
+    pFile->isPmem = 0;
+  }
+#endif
   if( pFile->h>=0 ){
     robust_close(pFile, pFile->h, __LINE__);
     pFile->h = -1;
@@ -3525,6 +3552,20 @@ static int unixWrite(
   }
 #endif
 
+/* PMEM2 write path */
+#ifdef SQLITE_HAVE_LIBPMEM2
+  if (pFile->isPmem && pFile->pmem_map) {
+    void *pmem_addr = (char*)pmem2_map_get_address(pFile->pmem_map) + offset;
+    pmem2_memcpy_fn memcpy_fn = pmem2_get_memcpy_fn(pFile->pmem_map);
+    pmem2_flush_fn flush_fn = pmem2_get_flush_fn(pFile->pmem_map);
+    pmem2_drain_fn drain_fn = pmem2_get_drain_fn(pFile->pmem_map);
+    memcpy_fn(pmem_addr, pBuf, amt, PMEM2_F_MEM_NODRAIN);
+    flush_fn(pmem_addr, amt);
+    drain_fn();
+    sqlite3_log(SQLITE_OK, "PMEM2: wrote %d bytes at offset %lld to %s", amt, offset, pFile->zPath);
+    return SQLITE_OK;
+  }
+#endif
 #if defined(SQLITE_MMAP_READWRITE) && SQLITE_MAX_MMAP_SIZE>0
   /* Deal with as much of this write request as possible by transferring
   ** data from the memory mapping using memcpy().  */
@@ -3770,11 +3811,26 @@ static int unixSync(sqlite3_file *id, int flags){
 
   assert( pFile );
   OSTRACE(("SYNC    %-3d\n", pFile->h));
-  rc = full_fsync(pFile->h, isFullsync, isDataOnly);
-  SimulateIOError( rc=1 );
-  if( rc ){
-    storeLastErrno(pFile, errno);
-    return unixLogError(SQLITE_IOERR_FSYNC, "full_fsync", pFile->zPath);
+
+#ifdef SQLITE_HAVE_LIBPMEM2
+  if (pFile->isPmem && pFile->pmem_map) {
+    void *pmem_addr = pmem2_map_get_address(pFile->pmem_map);
+    size_t pmem_len = pmem2_map_get_size(pFile->pmem_map);
+    pmem2_flush_fn flush_fn = pmem2_get_flush_fn(pFile->pmem_map);
+    pmem2_drain_fn drain_fn = pmem2_get_drain_fn(pFile->pmem_map);
+    flush_fn(pmem_addr, pmem_len);
+    drain_fn();
+    sqlite3_log(SQLITE_OK, "PMEM2: sync (flush/drain) for %s", pFile->zPath);
+    rc = 0;
+  } else
+#endif
+  {
+    rc = full_fsync(pFile->h, isFullsync, isDataOnly);
+    SimulateIOError( rc=1 );
+    if( rc ){
+      storeLastErrno(pFile, errno);
+      return unixLogError(SQLITE_IOERR_FSYNC, "full_fsync", pFile->zPath);
+    }
   }
 
   /* Also fsync the directory containing the file if the DIRSYNC flag
@@ -3978,6 +4034,7 @@ static int unixGetTempname(int nBuf, char *zBuf);
 ** Information and control of an open file handle.
 */
 static int unixFileControl(sqlite3_file *id, int op, void *pArg){
+  /* Custom file control for PMEM status */
   unixFile *pFile = (unixFile*)id;
   switch( op ){
 #if defined(__linux__) && defined(SQLITE_ENABLE_BATCH_ATOMIC_WRITE)
@@ -5820,6 +5877,43 @@ static int fillInUnixFile(
   pNew->ctrlFlags = (u8)ctrlFlags;
 #if SQLITE_MAX_MMAP_SIZE>0
   pNew->mmapSizeMax = sqlite3GlobalConfig.szMmap;
+#endif
+
+#ifdef SQLITE_HAVE_LIBPMEM2
+  pNew->isPmem = 0;
+  pNew->pmem_map = NULL;
+  if (zFilename && (ctrlFlags & UNIXFILE_NOLOCK) == 0) {
+    int pmrc = 0;
+    struct pmem2_source *src = NULL;
+    struct pmem2_config *cfg = NULL;
+    struct pmem2_map *map = NULL;
+    pmrc = pmem2_source_from_fd(&src, h);
+    if (pmrc == 0) {
+      pmrc = pmem2_config_new(&cfg);
+      if (pmrc == 0) {
+        pmrc = pmem2_config_set_required_store_granularity(cfg, PMEM2_GRANULARITY_PAGE);
+        if (pmrc == 0) {
+          pmrc = pmem2_map_new(&map, cfg, src);
+          if (pmrc == 0 && map) {
+            pNew->isPmem = pmem2_map_get_store_granularity(map) == PMEM2_GRANULARITY_BYTE;
+            pNew->pmem_map = map;
+            sqlite3_log(SQLITE_OK, "PMEM2: mapped file %s as persistent memory", zFilename);
+          } else {
+            logPmem2Error("pmem2_map_new", pmrc, zFilename);
+          }
+        } else {
+          logPmem2Error("pmem2_config_set_required_store_granularity", pmrc, zFilename);
+        }
+        pmem2_config_delete(&cfg);
+      } else {
+        logPmem2Error("pmem2_config_new", pmrc, zFilename);
+      }
+      pmem2_source_delete(&src);
+    } else {
+      /* Not on pmem, or not supported */
+      /* logPmem2Error("pmem2_source_from_fd", pmrc, zFilename); */
+    }
+  }
 #endif
   if( sqlite3_uri_boolean(((ctrlFlags & UNIXFILE_URI) ? zFilename : 0),
                            "psow", SQLITE_POWERSAFE_OVERWRITE) ){

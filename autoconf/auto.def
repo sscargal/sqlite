@@ -3,12 +3,15 @@
 #
 # This is the main autosetup-compatible configure script for the
 # "autoconf" bundle of the SQLite project.
+
 use sqlite-config
+
 sqlite-configure autoconf {
   sqlite-handle-debug
   sqlite-check-common-bins ;# must come before [sqlite-handle-wasi-sdk]
   sqlite-handle-wasi-sdk   ;# must run relatively early, as it changes the environment
   sqlite-check-common-system-deps
+
   proj-define-for-opt static-shell ENABLE_STATIC_SHELL \
     "Link library statically into the CLI shell?"
   proj-define-for-opt static-cli-shell STATIC_CLI_SHELL "Statically link CLI shell?"

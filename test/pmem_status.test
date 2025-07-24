@@ -1,0 +1,47 @@
+
+# 2025-07-24
+# Test PRAGMA pmem_status for persistent memory VFS integration
+#
+# This test checks that PRAGMA pmem_status returns 0 or 1 as expected.
+#
+# Note: This test assumes the build supports the pmem_status PRAGMA and the VFS is patched for PMEM detection.
+#
+# Usage:
+#   By default, the test database is created as "pmemtest.db" in the current directory.
+#   To specify a custom location (e.g., on a PMEM-enabled filesystem), set the DBFILE environment variable:
+#     export DBFILE=/mnt/pmem/pmemtest.db
+#     ./testfixture ../sqlite/test/pmem_status.test
+#   The test will use the value of DBFILE if set, otherwise it defaults to pmemtest.db.
+
+set testdir [file dirname $argv0]
+source $testdir/tester.tcl
+
+set DBFILE pmemtest.db
+# Use DBFILE from environment if set, otherwise default to pmemtest.db
+if {[info exists ::env(DBFILE)]} {
+  set DBFILE $::env(DBFILE)
+} else {
+  set DBFILE pmemtest.db
+}
+forcedelete $DBFILE
+
+sqlite3 db $DBFILE
+
+# Basic test: PRAGMA pmem_status returns an integer (0 or 1)
+do_test pmem-1.1 {
+  set rc [catch {db eval {PRAGMA pmem_status}} res]
+  list $rc $res
+} {0 0}
+
+# If running on a PMEM-enabled filesystem, pmem_status may return 1.
+# This test is robust: it only checks for 0 or 1.
+do_test pmem-1.2 {
+  set val [db eval {PRAGMA pmem_status}]
+  expr {($val == 0 || $val == 1) ? "ok" : "fail"}
+} {ok}
+
+# Clean up
+db close
+#forcedelete $DBFILE
+
+finish_test

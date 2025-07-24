@@ -399,6 +399,10 @@ set pragma_def {
   NAME: analysis_limit
   FLAG: Result0
 
+  NAME: pmem_status
+  TYPE: PMEM_STATUS
+  FLAG: Result0
+
   NAME: optimize
   FLAG: Result1 NeedSchema
 

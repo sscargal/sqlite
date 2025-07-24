@@ -12,8 +12,10 @@
 #
 # JimTCL: https://jim.tcl.tk
 #
+
 use sqlite-config
 sqlite-configure canonical {
+
   proj-if-opt-truthy dev {
     # --enable-dev needs to come early so that the downstream tests
     # which check for the following flags use their updated state.
