@@ -281,6 +281,7 @@ struct unixFile {
   /* PMEM2 support */
 #ifdef SQLITE_HAVE_LIBPMEM2
   int isPmem;                         /* 1 if file is on pmem, 0 otherwise */
+  int pmem_granularity;               /* PMEM2 granularity */
   struct pmem2_map *pmem_map;         /* pmem2 mapping handle */
 #endif
   int sectorSize;                     /* Device sector size */
@@ -4030,6 +4031,51 @@ static int unixGetTempname(int nBuf, char *zBuf);
  static int unixFcntlExternalReader(unixFile*, int*);
 #endif
 
+#ifdef SQLITE_HAVE_LIBPMEM2
+/*
+** Test each PMem2 granularity and find the most optimal supported by the platform.
+** Sets pmem_granularity and isPmem in unixFile. Returns 1 if supported, 0 otherwise.
+*/
+static int unixTestPmemGranularity(unixFile *pFd, struct pmem2_source *src, struct pmem2_config *cfg) {
+  enum pmem2_granularity try_gran[] = {
+    PMEM2_GRANULARITY_BYTE,
+    PMEM2_GRANULARITY_CACHE_LINE,
+    PMEM2_GRANULARITY_PAGE
+  };
+  int gran_found = 0;
+  int gran_idx;
+  struct pmem2_map *pmem_map = NULL;
+  int pmem2_rc = 0;
+  for (gran_idx = 0; gran_idx < 3; ++gran_idx) {
+    pmem2_rc = pmem2_config_set_required_store_granularity(cfg, try_gran[gran_idx]);
+    sqlite3_log(SQLITE_OK, "[PMEM DEBUG] Trying granularity %d: rc=%d", try_gran[gran_idx], pmem2_rc);
+    if (pmem2_rc != 0) continue;
+    pmem2_rc = pmem2_map_new(&pmem_map, cfg, src);
+    if (pmem2_rc == 0 && pmem_map != NULL) {
+      gran_found = 1;
+      pFd->pmem_granularity = try_gran[gran_idx];
+      pFd->isPmem = 1;
+      sqlite3_log(SQLITE_OK, "[PMEM DEBUG] Supported granularity found and mapping succeeded: %d", try_gran[gran_idx]);
+      pmem2_map_delete(&pmem_map);
+      break;
+    } else {
+      sqlite3_log(SQLITE_ERROR, "[PMEM ERROR] pmem2_map_new failed for granularity %d: %s", try_gran[gran_idx], pmem2_errormsg());
+      if (pmem_map) {
+        pmem2_map_delete(&pmem_map);
+        pmem_map = NULL;
+      }
+    }
+  }
+  if (!gran_found) {
+    pFd->pmem_granularity = 0;
+    pFd->isPmem = 0;
+    sqlite3_log(SQLITE_ERROR, "[PMEM ERROR] No supported granularity found for pmem2 mapping");
+    return 0;
+  }
+  return 1;
+}
+#endif
+
 /*
 ** Information and control of an open file handle.
 */
@@ -5426,36 +5472,34 @@ static void unixRemapfile(
   if (pmem2_rc == 0) {
     pmem2_rc = pmem2_config_new(&cfg);
     if (pmem2_rc == 0) {
-      // Set required store granularity to byte
-      // Granularity must be one of the following values:
+      // PMem Granularity must be one of the following values:
       //   PMEM2_GRANULARITY_BYTE - Platform must support eADR!!
       //   PMEM2_GRANULARITY_CACHE_LINE
       //   PMEM2_GRANULARITY_PAGE
-      pmem2_rc = pmem2_config_set_required_store_granularity(cfg, PMEM2_GRANULARITY_CACHE_LINE);
-      if (pmem2_rc != 0) {
-        sqlite3_log(SQLITE_ERROR, "[PMEM ERROR] pmem2_config_set_required_store_granularity failed: %s", pmem2_errormsg());
+      if (!unixTestPmemGranularity(pFd, src, cfg)) {
         pmem2_config_delete(&cfg);
         pmem2_source_delete(&src);
-        return;
-      }
-      pmem2_rc = pmem2_map_new(&pmem_map, cfg, src);
-      if (pmem2_rc == 0) {
-        pFd->pmem_map = pmem_map;
-        enum pmem2_granularity gran = pmem2_map_get_store_granularity(pmem_map);
-        pFd->isPmem = (gran == PMEM2_GRANULARITY_CACHE_LINE) ? 1 : 0;
-        sqlite3_log(SQLITE_OK, "[PMEM DEBUG] pmem2_map_get_store_granularity=%d, isPmem=%d", gran, pFd->isPmem);
-        // Set mapping and return
-        pFd->pMapRegion = (void *)pmem2_map_get_address(pmem_map);
-        pFd->mmapSize = pFd->mmapSizeActual = nNew;
-        sqlite3_log(SQLITE_OK, "[PMEM DEBUG] pmem2 mapping succeeded, address=%p, size=%lld", 
-                    pFd->pMapRegion, (long long)pFd->mmapSizeActual);
-        pmem2_config_delete(&cfg);
-        pmem2_source_delete(&src);
-        return;
+        // PMEM not supported, fallback to normal mmap logic
       } else {
-        sqlite3_log(SQLITE_ERROR, "[PMEM ERROR] pmem2_map_new failed: %s", pmem2_errormsg());
+        pmem2_rc = pmem2_map_new(&pmem_map, cfg, src);
+        if (pmem2_rc == 0) {
+          pFd->pmem_map = pmem_map;
+          enum pmem2_granularity gran = pmem2_map_get_store_granularity(pmem_map);
+          pFd->isPmem = (gran == pFd->pmem_granularity) ? 1 : 0;
+          sqlite3_log(SQLITE_OK, "[PMEM DEBUG] pmem2_map_get_store_granularity=%d, isPmem=%d", gran, pFd->isPmem);
+          // Set mapping and return
+          pFd->pMapRegion = (void *)pmem2_map_get_address(pmem_map);
+          pFd->mmapSize = pFd->mmapSizeActual = nNew;
+          sqlite3_log(SQLITE_OK, "[PMEM DEBUG] pmem2 mapping succeeded, address=%p, size=%lld", 
+                      pFd->pMapRegion, (long long)pFd->mmapSizeActual);
+          pmem2_config_delete(&cfg);
+          pmem2_source_delete(&src);
+          return;
+        } else {
+          sqlite3_log(SQLITE_ERROR, "[PMEM ERROR] pmem2_map_new failed: %s", pmem2_errormsg());
+        }
       }
-    pmem2_config_delete(&cfg);
+      pmem2_config_delete(&cfg);
     }
     pmem2_source_delete(&src);
   } else {
