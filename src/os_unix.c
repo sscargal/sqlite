@@ -4035,7 +4035,6 @@ static int unixGetTempname(int nBuf, char *zBuf);
 */
 static int unixFileControl(sqlite3_file *id, int op, void *pArg){
 
-  /* Custom file control for PMEM status */
   unixFile *pFile = (unixFile*)id;
   switch( op ){
 #if defined(__linux__) && defined(SQLITE_ENABLE_BATCH_ATOMIC_WRITE)
@@ -4188,21 +4187,29 @@ static int unixFileControl(sqlite3_file *id, int op, void *pArg){
     ** Returns SQLITE_OK if handled, SQLITE_ERROR if pArg is NULL.
     */
     case SQLITE_FCNTL_PMEM_STATUS: 
-#ifdef SQLITE_HAVE_LIBPMEM2
+  #ifdef SQLITE_HAVE_LIBPMEM2
       if (pArg) {
         unixFile *pFile = (unixFile*)id;
         int *pmemStatus = (int*)pArg;
         *pmemStatus = 0;
         if (pFile->isPmem) {
           *pmemStatus = 1;
+          sqlite3_log(SQLITE_OK, "[PMEM DEBUG] pFile->isPmem=1 for file at %p", (void*)pFile);
+        } else {
+          sqlite3_log(SQLITE_OK, "[PMEM DEBUG] pFile->isPmem=0 for file at %p", (void*)pFile);
         }
+        sqlite3_log(SQLITE_OK, "[PMEM DEBUG] SQLITE_FCNTL_PMEM_STATUS handled, pmemStatus=%d", *pmemStatus);
         return SQLITE_OK;
       }
+      sqlite3_log(SQLITE_ERROR, "[PMEM ERROR] SQLITE_FCNTL_PMEM_STATUS called with NULL pArg");
       return SQLITE_ERROR;
-#else
-      if (pArg) *(int*)pArg = 0;
+  #else
+      if (pArg) {
+        *(int*)pArg = 0;
+        sqlite3_log(SQLITE_OK, "[PMEM DEBUG] SQLITE_FCNTL_PMEM_STATUS (no PMEM2), set pmemStatus=0");
+      }
       return SQLITE_OK;
-#endif
+  #endif
   }
   return SQLITE_NOTFOUND;
 }
@@ -5408,6 +5415,60 @@ static void unixRemapfile(
   assert( pFd->mmapSizeActual>=pFd->mmapSize );
   assert( MAP_FAILED!=0 );
 
+#ifdef SQLITE_HAVE_LIBPMEM2
+  // Use libpmem2 for mapping and PMEM detection
+  struct pmem2_map *pmem_map = NULL;
+  struct pmem2_config *cfg = NULL;
+  struct pmem2_source *src = NULL;
+  int pmem2_rc = 0;
+  pFd->isPmem = 0;
+  pmem2_rc = pmem2_source_from_fd(&src, h);
+  if (pmem2_rc == 0) {
+    pmem2_rc = pmem2_config_new(&cfg);
+    if (pmem2_rc == 0) {
+      // Set required store granularity to byte
+      // Granularity must be one of the following values:
+      //   PMEM2_GRANULARITY_BYTE - Platform must support eADR!!
+      //   PMEM2_GRANULARITY_CACHE_LINE
+      //   PMEM2_GRANULARITY_PAGE
+      pmem2_rc = pmem2_config_set_required_store_granularity(cfg, PMEM2_GRANULARITY_CACHE_LINE);
+      if (pmem2_rc != 0) {
+        sqlite3_log(SQLITE_ERROR, "[PMEM ERROR] pmem2_config_set_required_store_granularity failed: %s", pmem2_errormsg());
+        pmem2_config_delete(&cfg);
+        pmem2_source_delete(&src);
+        return;
+      }
+      // Create the new mapping
+      pmem2_rc = pmem2_map_new(&pmem_map, cfg, src);
+      if (pmem2_rc == 0) {
+        pFd->pmem_map = pmem_map;
+#if defined(PMEM2_GRANULARITY_BYTE) && defined(pmem2_map_get_store_granularity)
+        enum pmem2_granularity gran = pmem2_map_get_store_granularity(pmem_map);
+        pFd->isPmem = (gran == PMEM2_GRANULARITY_BYTE) ? 1 : 0;
+        sqlite3_log(SQLITE_OK, "[PMEM DEBUG] pmem2_map_get_store_granularity=%d, isPmem=%d", gran, pFd->isPmem);
+#else
+        pFd->isPmem = 0;
+        sqlite3_log(SQLITE_OK, "[PMEM DEBUG] pmem2_map_get_store_granularity not available, default isPmem=0");
+#endif
+        // Set mapping and return early
+        pFd->pMapRegion = (void *)pmem2_map_get_address(pmem_map);
+        pFd->mmapSize = pFd->mmapSizeActual = nNew;
+        sqlite3_log(SQLITE_OK, "[PMEM DEBUG] pmem2 mapping succeeded, address=%p, size=%lld", 
+                    pFd->pMapRegion, (long long)pFd->mmapSizeActual);
+        pmem2_config_delete(&cfg);
+        pmem2_source_delete(&src);
+        return;
+      } else {
+        sqlite3_log(SQLITE_ERROR, "[PMEM ERROR] pmem2_map_new failed: %s", pmem2_errormsg());
+      }
+    pmem2_config_delete(&cfg);
+    }
+    pmem2_source_delete(&src);
+  } else {
+    sqlite3_log(SQLITE_ERROR, "[PMEM ERROR] pmem2_source_from_fd failed: %s", pmem2_errormsg());
+  }
+#endif
+
 #ifdef SQLITE_MMAP_READWRITE
   if( (pFd->ctrlFlags & UNIXFILE_RDONLY)==0 ) flags |= PROT_WRITE;
 #endif
@@ -5910,42 +5971,6 @@ static int fillInUnixFile(
   pNew->mmapSizeMax = sqlite3GlobalConfig.szMmap;
 #endif
 
-#ifdef SQLITE_HAVE_LIBPMEM2
-  pNew->isPmem = 0;
-  pNew->pmem_map = NULL;
-  if (zFilename && (ctrlFlags & UNIXFILE_NOLOCK) == 0) {
-    int pmrc = 0;
-    struct pmem2_source *src = NULL;
-    struct pmem2_config *cfg = NULL;
-    struct pmem2_map *map = NULL;
-    pmrc = pmem2_source_from_fd(&src, h);
-    if (pmrc == 0) {
-      pmrc = pmem2_config_new(&cfg);
-      if (pmrc == 0) {
-        pmrc = pmem2_config_set_required_store_granularity(cfg, PMEM2_GRANULARITY_PAGE);
-        if (pmrc == 0) {
-          pmrc = pmem2_map_new(&map, cfg, src);
-          if (pmrc == 0 && map) {
-            pNew->isPmem = pmem2_map_get_store_granularity(map) == PMEM2_GRANULARITY_BYTE;
-            pNew->pmem_map = map;
-            sqlite3_log(SQLITE_OK, "PMEM2: mapped file %s as persistent memory", zFilename);
-          } else {
-            logPmem2Error("pmem2_map_new", pmrc, zFilename);
-          }
-        } else {
-          logPmem2Error("pmem2_config_set_required_store_granularity", pmrc, zFilename);
-        }
-        pmem2_config_delete(&cfg);
-      } else {
-        logPmem2Error("pmem2_config_new", pmrc, zFilename);
-      }
-      pmem2_source_delete(&src);
-    } else {
-      /* Not on pmem, or not supported */
-      /* logPmem2Error("pmem2_source_from_fd", pmrc, zFilename); */
-    }
-  }
-#endif
   if( sqlite3_uri_boolean(((ctrlFlags & UNIXFILE_URI) ? zFilename : 0),
                            "psow", SQLITE_POWERSAFE_OVERWRITE) ){
     pNew->ctrlFlags |= UNIXFILE_PSOW;

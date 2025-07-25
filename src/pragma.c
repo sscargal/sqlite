@@ -1,4 +1,3 @@
-
 /*
 ** 2003 April 6
 **
@@ -526,14 +525,19 @@ void sqlite3Pragma(
   case PragTyp_PMEM_STATUS: {
 #ifdef SQLITE_HAVE_LIBPMEM2
     int pmem = 0;
-    rc = sqlite3_file_control(db, zDb, 0xAFA0 /*SQLITE_FCNTL_PMEM_STATUS*/, &pmem);
+    sqlite3_log(SQLITE_OK, "[PRAGMA DEBUG] pmem_status handler called");
+    rc = sqlite3_file_control(db, zDb, SQLITE_FCNTL_PMEM_STATUS, &pmem);
+    sqlite3_log(SQLITE_OK, "[PRAGMA DEBUG] file_control rc=%d, pmemStatus=%d", rc, pmem);
     if( rc==SQLITE_OK ){
+      sqlite3_log(SQLITE_OK, "[PRAGMA DEBUG] pmem_status returning %d", pmem);
       returnSingleInt(v, pmem);
     }else if( rc!=SQLITE_NOTFOUND ){
+      sqlite3_log(SQLITE_OK, "[PRAGMA DEBUG] pmem_status error: %d", rc);
       pParse->nErr++;
       pParse->rc = rc;
     }
 #else
+    sqlite3_log(SQLITE_OK, "[PRAGMA DEBUG] pmem_status handler called, but persistent memory support is not enabled");
     returnSingleInt(v, 0);
 #endif
     break;
