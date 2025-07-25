@@ -4034,6 +4034,7 @@ static int unixGetTempname(int nBuf, char *zBuf);
 ** Information and control of an open file handle.
 */
 static int unixFileControl(sqlite3_file *id, int op, void *pArg){
+
   /* Custom file control for PMEM status */
   unixFile *pFile = (unixFile*)id;
   switch( op ){
@@ -4172,6 +4173,36 @@ static int unixFileControl(sqlite3_file *id, int op, void *pArg){
       return SQLITE_OK;
 #endif
     }
+    /* PMEM status file control: set *pArg to 1 if file is on PMEM, else 0 */
+    /*
+    ** Handle the custom file control for persistent memory status.
+    **
+    ** PRAGMA pmem_status calls sqlite3_file_control() with this code (0xAFA0).
+    **
+    ** If the file is memory-mapped on a persistent memory (PMEM/DAX) filesystem,
+    ** and PMEM support is compiled in, set *pArg to 1. Otherwise, set *pArg to 0.
+    **
+    ** This enables applications and tests to query whether the main database file
+    ** is using persistent memory features at runtime.
+    **
+    ** Returns SQLITE_OK if handled, SQLITE_ERROR if pArg is NULL.
+    */
+    case SQLITE_FCNTL_PMEM_STATUS: /* SQLITE_FCNTL_PMEM_STATUS */
+#ifdef SQLITE_HAVE_LIBPMEM2
+      if (pArg) {
+        unixFile *pFile = (unixFile*)id;
+        int *pmemStatus = (int*)pArg;
+        *pmemStatus = 0;
+        if (pFile->isPmem) {
+          *pmemStatus = 1;
+        }
+        return SQLITE_OK;
+      }
+      return SQLITE_ERROR;
+#else
+      if (pArg) *(int*)pArg = 0;
+      return SQLITE_OK;
+#endif
   }
   return SQLITE_NOTFOUND;
 }

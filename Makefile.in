@@ -87,6 +87,7 @@ T.cc = $(CC)
 # Add PMEM support if enabled
 CFLAGS += $(CFLAGS.pmem)
 LDFLAGS.pmem =
+PMEM_ENABLED = @PMEM_ENABLED@
 ifeq ($(PMEM_ENABLED),1)
   CFLAGS += -DSQLITE_HAVE_LIBPMEM2
   LDFLAGS.pmem += -lpmem2

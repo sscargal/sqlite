@@ -782,6 +782,9 @@ proc sqlite-handle-common-feature-flags {} {
     # Add linker flag for pmem if enabled
     if {$boolFlag eq "pmem" && [proj-opt-truthy pmem]} {
       define-append OPT_SHELL -lpmem2
+      define PMEM_ENABLED 1
+    } elseif {$boolFlag eq "pmem"} {
+      define PMEM_ENABLED 0
     }
     if {$boolFlag ni $::autosetup(options)} {
       # Skip flags which are in the canonical build but not

@@ -15,7 +15,7 @@ return 0;
 }
 ============
 Failed: cc -O2 -g conftest__.c -o conftest__
-/usr/bin/ld: /tmp/cc43qphb.o: in function `main':
+/usr/bin/ld: /tmp/ccTXWfcq.o: in function `main':
 /home/amd/sqlite/conftest__.c:3:(.text.startup+0x9): undefined reference to `localtime_s'
 collect2: error: ld returned 1 exit status
 child process exited abnormally
@@ -28,7 +28,7 @@ return 0;
 }
 ============
 Failed: cc -O2 -g conftest__.c -o conftest__
-/usr/bin/ld: /tmp/ccC7sf5T.o: in function `main':
+/usr/bin/ld: /tmp/ccUF6Sdz.o: in function `main':
 /home/amd/sqlite/conftest__.c:3:(.text.startup+0x9): undefined reference to `deflate'
 collect2: error: ld returned 1 exit status
 child process exited abnormally
@@ -57,7 +57,7 @@ conftest__.c:1:13: warning: conflicting types for built-in function ‘ceil’; 
 conftest__.c:1:1: note: ‘ceil’ is declared in header ‘<math.h>’
   +++ |+#include <math.h>
     1 | extern void ceil(void);
-/usr/bin/ld: /tmp/cczciS17.o: in function `main':
+/usr/bin/ld: /tmp/ccwlld3n.o: in function `main':
 /home/amd/sqlite/conftest__.c:3:(.text.startup+0x9): undefined reference to `ceil'
 collect2: error: ld returned 1 exit status
 child process exited abnormally

@@ -116,7 +116,7 @@ CFLAGS.icu =
 LDFLAGS.libsqlite3.soname = 
 # soname: see https://sqlite.org/src/forumpost/5a3b44f510df8ded
 LDFLAGS.libsqlite3.os-specific = \
-	
+    
 # os-specific: see
 # - https://sqlite.org/forum/forumpost/9dfd5b8fd525a5d7
 # - https://sqlite.org/forum/forumpost/0c7fc097b2
