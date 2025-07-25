@@ -5438,19 +5438,13 @@ static void unixRemapfile(
         pmem2_source_delete(&src);
         return;
       }
-      // Create the new mapping
       pmem2_rc = pmem2_map_new(&pmem_map, cfg, src);
       if (pmem2_rc == 0) {
         pFd->pmem_map = pmem_map;
-#if defined(PMEM2_GRANULARITY_BYTE) && defined(pmem2_map_get_store_granularity)
         enum pmem2_granularity gran = pmem2_map_get_store_granularity(pmem_map);
-        pFd->isPmem = (gran == PMEM2_GRANULARITY_BYTE) ? 1 : 0;
+        pFd->isPmem = (gran == PMEM2_GRANULARITY_CACHE_LINE) ? 1 : 0;
         sqlite3_log(SQLITE_OK, "[PMEM DEBUG] pmem2_map_get_store_granularity=%d, isPmem=%d", gran, pFd->isPmem);
-#else
-        pFd->isPmem = 0;
-        sqlite3_log(SQLITE_OK, "[PMEM DEBUG] pmem2_map_get_store_granularity not available, default isPmem=0");
-#endif
-        // Set mapping and return early
+        // Set mapping and return
         pFd->pMapRegion = (void *)pmem2_map_get_address(pmem_map);
         pFd->mmapSize = pFd->mmapSizeActual = nNew;
         sqlite3_log(SQLITE_OK, "[PMEM DEBUG] pmem2 mapping succeeded, address=%p, size=%lld", 
