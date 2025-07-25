@@ -4046,20 +4046,29 @@ static int unixTestPmemGranularity(unixFile *pFd, struct pmem2_source *src, stru
   int gran_idx;
   struct pmem2_map *pmem_map = NULL;
   int pmem2_rc = 0;
+  const char *gran_names[] = {"Byte", "Cache Line", "Page"};
   for (gran_idx = 0; gran_idx < 3; ++gran_idx) {
     pmem2_rc = pmem2_config_set_required_store_granularity(cfg, try_gran[gran_idx]);
-    sqlite3_log(SQLITE_OK, "[PMEM DEBUG] Trying granularity %d: rc=%d", try_gran[gran_idx], pmem2_rc);
+    sqlite3_log(SQLITE_OK, "[PMEM DEBUG] Trying granularity %s: rc=%d", gran_names[gran_idx], pmem2_rc);
     if (pmem2_rc != 0) continue;
     pmem2_rc = pmem2_map_new(&pmem_map, cfg, src);
     if (pmem2_rc == 0 && pmem_map != NULL) {
       gran_found = 1;
       pFd->pmem_granularity = try_gran[gran_idx];
       pFd->isPmem = 1;
-      sqlite3_log(SQLITE_OK, "[PMEM DEBUG] Supported granularity found and mapping succeeded: %d", try_gran[gran_idx]);
+      sqlite3_log(SQLITE_OK, "[PMEM DEBUG] Supported granularity found and mapping succeeded: %s", gran_names[gran_idx]);
       pmem2_map_delete(&pmem_map);
       break;
     } else {
-      sqlite3_log(SQLITE_ERROR, "[PMEM ERROR] pmem2_map_new failed for granularity %d: %s", try_gran[gran_idx], pmem2_errormsg());
+      const char *errstr = pmem2_errormsg();
+      sqlite3_log(SQLITE_ERROR, "[PMEM ERROR] pmem2_map_new failed for granularity %s: %s", gran_names[gran_idx], errstr);
+      if (errstr && strstr(errstr, "fd doesn't point to DAX-enabled file")) {
+        // Not a PMem device, exit early
+        pFd->pmem_granularity = 0;
+        pFd->isPmem = 0;
+        sqlite3_log(SQLITE_ERROR, "[PMEM ERROR] Detected non-PMem device, aborting further granularity tests.");
+        break;
+      }
       if (pmem_map) {
         pmem2_map_delete(&pmem_map);
         pmem_map = NULL;
