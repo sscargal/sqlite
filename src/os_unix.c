@@ -4187,7 +4187,7 @@ static int unixFileControl(sqlite3_file *id, int op, void *pArg){
     **
     ** Returns SQLITE_OK if handled, SQLITE_ERROR if pArg is NULL.
     */
-    case SQLITE_FCNTL_PMEM_STATUS: /* SQLITE_FCNTL_PMEM_STATUS */
+    case SQLITE_FCNTL_PMEM_STATUS: 
 #ifdef SQLITE_HAVE_LIBPMEM2
       if (pArg) {
         unixFile *pFile = (unixFile*)id;

@@ -87,6 +87,7 @@ T.cc = $(CC)
 # Add PMEM support if enabled
 CFLAGS += $(CFLAGS.pmem)
 LDFLAGS.pmem =
+PMEM_ENABLED = 1
 ifeq ($(PMEM_ENABLED),1)
   CFLAGS += -DSQLITE_HAVE_LIBPMEM2
   LDFLAGS.pmem += -lpmem2
@@ -137,7 +138,7 @@ CFLAGS.fuzzcheck-asan.fsanitize = -fsanitize=address,bounds-strict
 #
 # Intended to either be empty or be set to -g -DSQLITE_DEBUG=1.
 #
-T.cc.TARGET_DEBUG = -DNDEBUG
+T.cc.TARGET_DEBUG = -g -DSQLITE_DEBUG=1 -O0 -Wall
 
 #
 # $(JIMSH) and $(CFLAGS.jimsh) are documented in main.mk.  $(JIMSH)
@@ -160,7 +161,7 @@ $(B.tclsh):
 # and somewhat confusing because there's another var, $(OPTS), which
 # has a similar (but not identical) role.
 #
-OPT_FEATURE_FLAGS = -DSQLITE_ENABLE_MATH_FUNCTIONS -DSQLITE_HAVE_LIBPMEM2 -DSQLITE_THREADSAFE=1 $(OPTIONS)
+OPT_FEATURE_FLAGS = -DSQLITE_ENABLE_FTS4 -DSQLITE_ENABLE_FTS5 -DSQLITE_ENABLE_GEOPOLY -DSQLITE_ENABLE_MATH_FUNCTIONS -DSQLITE_ENABLE_MEMSYS5 -DSQLITE_ENABLE_PREUPDATE_HOOK -DSQLITE_ENABLE_RTREE -DSQLITE_ENABLE_SELECTTRACE -DSQLITE_ENABLE_SESSION -DSQLITE_ENABLE_WHERETRACE -DSQLITE_HAVE_LIBPMEM2 -DSQLITE_THREADSAFE=1 $(OPTIONS)
 
 #
 # Version (X.Y.Z) number for the SQLite being compiled.
@@ -256,7 +257,7 @@ AS_AUTO_DEF = $(TOP)/auto.def
 # Shell commands to re-run $(TOP)/configure with the same args it was
 # invoked with to produce this makefile.
 #
-AS_AUTORECONFIG = cd "/home/amd/sqlite" && /home/amd/sqlite/autosetup/autosetup
+AS_AUTORECONFIG = cd "/home/amd/sqlite" && ../sqlite/configure --enable-all --enable-debug
 .PHONY: reconfigure
 reconfigure:
 	$(AS_AUTORECONFIG)
