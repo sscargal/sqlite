@@ -18,6 +18,7 @@ void log_callback(void *pArg, int iErrCode, const char *zMsg) {
 }
 
 
+
 int main(int argc, char *argv[]) {
     sqlite3 *db = NULL;
     sqlite3_stmt *stmt = NULL;
@@ -28,9 +29,10 @@ int main(int argc, char *argv[]) {
     size_t max_db_size = 1073741824; // default 1GB
     int row_count = 100000; // default 100k rows
     int debug_mode = 0;
+    const char *journal_mode = NULL;
     int opt;
 
-    while ((opt = getopt(argc, argv, "f:ms:r:d")) != -1) {
+    while ((opt = getopt(argc, argv, "f:ms:r:dj:h")) != -1) {
         switch (opt) {
             case 'f':
                 db_path = optarg;
@@ -47,17 +49,31 @@ int main(int argc, char *argv[]) {
             case 'd':
                 debug_mode = 1;
                 break;
+            case 'j':
+                journal_mode = optarg;
+                break;
+            case 'h':
             default:
-                fprintf(stderr, "Usage: %s -f <db_path> [-m] [-s <max_db_size>] [-r <row_count>] [--debug]\n", argv[0]);
+                fprintf(stderr, "Usage: %s -f <db_path> [-m] [-s <max_db_size>] [-r <row_count>] [-d] [-j <journal_mode>] [-h]\n", argv[0]);
+                fprintf(stderr, "  -f <db_path>         Path to SQLite database file\n");
+                fprintf(stderr, "  -m                   Disable mmap (PRAGMA mmap_size=0)\n");
+                fprintf(stderr, "  -s <max_db_size>     Set PRAGMA mmap_size (default 1GB)\n");
+                fprintf(stderr, "  -r <row_count>       Number of rows to insert (default 100000)\n");
+                fprintf(stderr, "  -d                   Enable debug mode (SQLite log callback)\n");
+                fprintf(stderr, "  -j <journal_mode>    Set PRAGMA journal_mode (DELETE|TRUNCATE|PERSIST|MEMORY|WAL|OFF). Default: DELETE.\n");
+                fprintf(stderr, "  -h                   Show this help message\n");
                 return 1;
         }
     }
 
+
+    // Validate required arguments
     if (!db_path) {
-        fprintf(stderr, "Usage: %s -f <db_path> [-m] [-s <max_db_size>] [-r <row_count>] [--debug]\n", argv[0]);
+        fprintf(stderr, "Usage: %s -f <db_path> [-m] [-s <max_db_size>] [-r <row_count>] [-d] [-j <journal_mode>] [-h]\n", argv[0]);
         return 1;
     }
 
+    // If debug mode is enabled, register the log callback to display the messages
     if (debug_mode) {
         printf("Registering log callback...\n");
         rc = sqlite3_config(SQLITE_CONFIG_LOG, log_callback, NULL);
@@ -67,10 +83,13 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    // If mmap is disabled, set PRAGMA mmap_size to 0
     if (!use_mmap) {
         printf("Disabling memory-mapped I/O via PRAGMA mmap_size=0...\n");
     }
 
+
+    // Open the database
     printf("Opening database: %s\n", db_path);
     rc = sqlite3_open(db_path, &db);
     if (rc != SQLITE_OK) {
@@ -78,6 +97,29 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+
+    // Set journal mode if requested
+    if (journal_mode) {
+        char pragma_sql[64];
+        snprintf(pragma_sql, sizeof(pragma_sql), "PRAGMA journal_mode=%s;", journal_mode);
+        rc = sqlite3_exec(db, pragma_sql, NULL, NULL, NULL);
+        if (rc != SQLITE_OK) {
+            fprintf(stderr, "Failed to set journal_mode: %s\n", sqlite3_errmsg(db));
+            sqlite3_close(db);
+            return 1;
+        }
+    }
+    // Always print the current journal mode
+    sqlite3_stmt *jm_stmt = NULL;
+    rc = sqlite3_prepare_v2(db, "PRAGMA journal_mode;", -1, &jm_stmt, NULL);
+    if (rc == SQLITE_OK && sqlite3_step(jm_stmt) == SQLITE_ROW) {
+        printf("journal_mode: %s\n", sqlite3_column_text(jm_stmt, 0));
+    } else {
+        fprintf(stderr, "Failed to query journal_mode: %s\n", sqlite3_errmsg(db));
+    }
+    sqlite3_finalize(jm_stmt);
+
+    // If mmap is disabled, set PRAGMA mmap_size to 0
     if (!use_mmap) {
         rc = sqlite3_exec(db, "PRAGMA mmap_size=0;", NULL, NULL, NULL);
         if (rc != SQLITE_OK) {

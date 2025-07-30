@@ -3555,18 +3555,20 @@ static int unixWrite(
 
 /* PMEM2 write path */
 #ifdef SQLITE_HAVE_LIBPMEM2
+  /* If this is a PMEM file, use the pmem2 API to write to the file.
+  ** The pmem2 API is used to ensure that writes are persistent and
+  ** that the memory is flushed to persistent memory correctly. */
   if (pFile->isPmem && pFile->pmem_map) {
     void *pmem_addr = (char*)pmem2_map_get_address(pFile->pmem_map) + offset;
     pmem2_memcpy_fn memcpy_fn = pmem2_get_memcpy_fn(pFile->pmem_map);
-    pmem2_flush_fn flush_fn = pmem2_get_flush_fn(pFile->pmem_map);
-    pmem2_drain_fn drain_fn = pmem2_get_drain_fn(pFile->pmem_map);
-    memcpy_fn(pmem_addr, pBuf, amt, PMEM2_F_MEM_NODRAIN);
-    flush_fn(pmem_addr, amt);
-    drain_fn();
-    sqlite3_log(SQLITE_OK, "PMEM2: wrote %d bytes at offset %lld to %s", amt, offset, pFile->zPath);
+    pmem2_persist_fn persist_fn = pmem2_get_persist_fn(pFile->pmem_map);
+    memcpy_fn(pmem_addr, pBuf, amt, PMEM2_F_MEM_NOFLUSH);
+    persist_fn(pmem_addr, amt);
+    sqlite3_log(SQLITE_OK, "PMEM2: wrote and persisted %d bytes at offset %lld to %s", amt, offset, pFile->zPath);
     return SQLITE_OK;
   }
 #endif
+
 #if defined(SQLITE_MMAP_READWRITE) && SQLITE_MAX_MMAP_SIZE>0
   /* Deal with as much of this write request as possible by transferring
   ** data from the memory mapping using memcpy().  */
@@ -3815,13 +3817,13 @@ static int unixSync(sqlite3_file *id, int flags){
 
 #ifdef SQLITE_HAVE_LIBPMEM2
   if (pFile->isPmem && pFile->pmem_map) {
+    /* If the file is on persistent memory, use the pmem2_map_get_persist_fn() to
+    persist the memory region. */
     void *pmem_addr = pmem2_map_get_address(pFile->pmem_map);
     size_t pmem_len = pmem2_map_get_size(pFile->pmem_map);
-    pmem2_flush_fn flush_fn = pmem2_get_flush_fn(pFile->pmem_map);
-    pmem2_drain_fn drain_fn = pmem2_get_drain_fn(pFile->pmem_map);
-    flush_fn(pmem_addr, pmem_len);
-    drain_fn();
-    sqlite3_log(SQLITE_OK, "PMEM2: sync (flush/drain) for %s", pFile->zPath);
+    pmem2_persist_fn persist_fn = pmem2_get_persist_fn(pFile->pmem_map);
+    persist_fn(pmem_addr, pmem_len);
+    sqlite3_log(SQLITE_OK, "PMEM2: sync (persist) for %s", pFile->zPath);
     rc = 0;
   } else
 #endif
